@@ -1,9 +1,46 @@
 package bz
 
-import scalaz.{Isomorphism => iso, Show, \/, -\/, \/-}
+import scala.language.higherKinds
+import scalaz.{Cord, Isomorphism => iso, Show, \/, -\/, \/-}
 import iso.<=>
 import scalaz.std.list._
+import scalaz.std.set._
+import scalaz.std.string._
 import scalaz.syntax.either._
+
+trait Decidable[F[_]] {
+  def choose2[Z, A1, A2](a1: =>F[A1], a2: =>F[A2])(f: Z => (A1 \/ A2)): F[Z]
+
+  def choose3[Z, A1, A2, A3](a1: =>F[A1], a2: =>F[A2], a3: =>F[A3])(
+    f: Z => A1 \/ (A2 \/ A3)
+  ): F[Z] = {
+    val a23: F[A2 \/ A3] = choose2(a2, a3)(identity)
+    choose2(a1, a23)(f)
+  }
+  def choose4[Z, A1, A2, A3, A4](a1: =>F[A1], a2: =>F[A2], a3: =>F[A3], a4: =>F[A4])(
+    f: Z => A1 \/ (A2 \/ (A3 \/ A4))
+  ): F[Z] = {
+    val a234: F[A2 \/ (A3 \/ A4)] = choose3(a2, a3, a4)(identity)
+    choose2(a1, a234)(f)
+  }
+  def choose5[Z, A1, A2, A3, A4, A5](a1: =>F[A1], a2: =>F[A2], a3: =>F[A3], a4: =>F[A4], a5: =>F[A5])(
+    f: Z => A1 \/ (A2 \/ (A3 \/ (A4 \/ A5)))
+  ): F[Z] = {
+    val a2345: F[A2 \/ (A3 \/ (A4 \/ A5))] = choose4(a2, a3, a4, a5)(identity)
+    choose2(a1, a2345)(f)
+  }
+}
+
+object Decidable {
+  implicit val showInstance: Decidable[Show] = new Decidable[Show] {
+    def choose2[Z, A1, A2](a1: =>Show[A1], a2: =>Show[A2])(f: Z => (A1 \/ A2)): Show[Z] =
+      new Show[Z] {
+        def show(z: Z): Cord = f(z).fold(a1.show(_), a2.show(_))
+      }
+  }
+
+  def apply[F[_]](implicit D: Decidable[F]) = D
+}
 
 object calc extends App {
   sealed trait Exp
@@ -26,14 +63,18 @@ object calc extends App {
         case \/-(\/-(\/-(-\/(a)))) => a
         case \/-(\/-(\/-(\/-(b)))) => b
       })
+
+
+    implicit val show: Show[Exp] = Decidable[Show].choose5(
+      Show[function], Show[constant], Show[param], Show[applied], Show[body])(gen.to(_))
   }
 
-  case class function(params: Set[param], exp: Exp) extends Exp
+  case class function(params: Set[param]) extends Exp //, exp: Exp) extends Exp
   object function {
-    implicit val gen: (function <=> (Set[param], Exp)) =
-      iso.IsoSet((x: function) => (x.params, x.exp), (function.apply _).tupled)
+    implicit val gen: (function <=> Set[param]) = //, Exp)) =
+      iso.IsoSet((x: function) => x.params, function(_)) //(x.params, x.exp), (function.apply _).tupled)
 
-    //implicit val show: Show[function] = Show.fromIso(gen)
+    implicit lazy val show: Show[function] = Show.fromIso(gen)
   }
 
   case class constant(value: Symbol) extends Exp
@@ -52,11 +93,17 @@ object calc extends App {
     implicit val show: Show[applied] = Show.fromIso(gen)
   }
 
-  case class body(exp: List[Exp]) extends Exp
+  case class body(value: Symbol) extends Exp //exp: List[Exp]) extends Exp
+  object body {
+    implicit val gen: (body <=> Symbol) = iso.IsoSet(_.value, body(_))
+    implicit val showSymbol: Show[Symbol] =
+      Show.fromIso(iso.IsoSet((_: Symbol).toString, Symbol(_: String)))
+    implicit val show: Show[body] = Show.fromIso(gen)
+  }
 
-  val example =
+  /*val example =
     body(List(
       function(Set(param('x)), body(List(constant('x), constant('x)))),
       function(Set(param('y)), body(List(constant('y), constant('x)))),
-      constant('z)))
+      constant('z)))*/
 }
