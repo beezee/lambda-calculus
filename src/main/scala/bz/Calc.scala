@@ -64,6 +64,27 @@ object Cops {
     case 3 => \/-(\/-(\/-(-\/(c.value.asInstanceOf[A4]))))
     case 4 => \/-(\/-(\/-(\/-(c.value.asInstanceOf[A5]))))
   }
+
+   def from1[A1](e: A1): Cop[A1 :: TNil] = Cop.unsafeApply(0, e)
+   def from2[A1, A2](e: A1 \/ A2): Cop[A1 :: A2 :: TNil] = e match {
+     case -\/(a) => Cop.unsafeApply(0, a)
+     case \/-(b) => Cop.unsafeApply(1, b)
+   }
+   def from3[A1, A2, A3](e: A1 \/ (A2 \/ A3)): Cop[A1 :: A2 :: A3 :: TNil] =
+     e match {
+       case -\/(a)      => Cop.unsafeApply(0, a)
+       case \/-(-\/(b)) => Cop.unsafeApply(1, b)
+       case \/-(\/-(c)) => Cop.unsafeApply(2, c)
+     }
+   def from4[A1, A2, A3, A4](
+     e: A1 \/ (A2 \/ (A3 \/ A4))
+   ): Cop[A1 :: A2 :: A3 :: A4 :: TNil] =
+     e match {
+       case -\/(a)           => Cop.unsafeApply(0, a)
+       case \/-(-\/(b))      => Cop.unsafeApply(1, b)
+       case \/-(\/-(-\/(c))) => Cop.unsafeApply(2, c)
+       case \/-(\/-(\/-(d))) => Cop.unsafeApply(3, d)
+     }
 }
 
 object Decidable {
@@ -78,13 +99,19 @@ object Decidable {
 }
 
 object calc extends App {
+
+  implicit class IsoOps[A, B](i: (A <=> B)) {
+    def extend[C](extTo: B => C)(extFrom: C => B): (A <=> C) =
+      iso.IsoSet(extTo.compose(i.to), i.from.compose(extFrom))
+  }
+
   sealed trait Exp
   object Exp {
     type ExpCop = Cop[function :: constant :: param :: body :: TNil]
-    implicit val gen = Cop.gen[Exp, ExpCop#L]
+    implicit val gen = Cop.gen[Exp, ExpCop#L].extend(Cops.to4(_))(Cops.from4(_))
 
     implicit val show: Show[Exp] = Decidable[Show].choose4(
-      Show[function], Show[constant], Show[param], Show[body])(x => Cops.to4(gen.to(x)))
+      Show[function], Show[constant], Show[param], Show[body])(gen.to(_))
   }
 
   case class function(params: List[param], body: body) extends Exp
