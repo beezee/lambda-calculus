@@ -3,10 +3,11 @@ package bz
 import scala.language.higherKinds
 import scalaz.{Cord, Isomorphism => iso, Show, \/, -\/, \/-}
 import iso.<=>
+import iotaz.{Cop, TNil}
+import iotaz.TList.::
+import scala.annotation.switch
 import scalaz.std.list._
-import scalaz.std.set._
 import scalaz.std.tuple._
-import scalaz.syntax.either._
 import scalaz.syntax.show._
 
 trait Decidable[F[_]] {
@@ -32,6 +33,39 @@ trait Decidable[F[_]] {
   }
 }
 
+object Cops {
+
+  def to1[A1](c: Cop[A1 :: TNil]): A1 = c.value.asInstanceOf[A1]
+  def to2[A1, A2](c: Cop[A1 :: A2 :: TNil]): A1 \/ A2 =
+    (c.index: @switch) match {
+      case 0 => -\/(c.value.asInstanceOf[A1])
+      case 1 => \/-(c.value.asInstanceOf[A2])
+    }
+  def to3[A1, A2, A3](c: Cop[A1 :: A2 :: A3 :: TNil]): A1 \/ (A2 \/ A3) =
+    (c.index: @switch) match {
+      case 0 => -\/(c.value.asInstanceOf[A1])
+      case 1 => \/-(-\/(c.value.asInstanceOf[A2]))
+      case 2 => \/-(\/-(c.value.asInstanceOf[A3]))
+    }
+  def to4[A1, A2, A3, A4](
+    c: Cop[A1 :: A2 :: A3 :: A4 :: TNil]
+  ): A1 \/ (A2 \/ (A3 \/ A4)) = (c.index: @switch) match {
+    case 0 => -\/(c.value.asInstanceOf[A1])
+    case 1 => \/-(-\/(c.value.asInstanceOf[A2]))
+    case 2 => \/-(\/-(-\/(c.value.asInstanceOf[A3])))
+    case 3 => \/-(\/-(\/-(c.value.asInstanceOf[A4])))
+  }
+  def to5[A1, A2, A3, A4, A5](
+    c: Cop[A1 :: A2 :: A3 :: A4 :: A5 :: TNil]
+  ): A1 \/ (A2 \/ (A3 \/ (A4 \/ A5))) = (c.index: @switch) match {
+    case 0 => -\/(c.value.asInstanceOf[A1])
+    case 1 => \/-(-\/(c.value.asInstanceOf[A2]))
+    case 2 => \/-(\/-(-\/(c.value.asInstanceOf[A3])))
+    case 3 => \/-(\/-(\/-(-\/(c.value.asInstanceOf[A4]))))
+    case 4 => \/-(\/-(\/-(\/-(c.value.asInstanceOf[A5]))))
+  }
+}
+
 object Decidable {
   implicit val showInstance: Decidable[Show] = new Decidable[Show] {
     def choose2[Z, A1, A2](a1: =>Show[A1], a2: =>Show[A2])(f: Z => (A1 \/ A2)): Show[Z] =
@@ -46,33 +80,16 @@ object Decidable {
 object calc extends App {
   sealed trait Exp
   object Exp {
-    type AB = \/[applied, body]
-    type PAB = \/[param, AB]
-    type CPAB = \/[constant, PAB]
-    type ExpCop = \/[function, CPAB]
-    implicit val gen: (Exp <=> ExpCop) =
-      iso.IsoSet((x: Exp) => x match {
-        case f: function => f.left[CPAB]
-        case c: constant => c.left[PAB].right[function]
-        case p: param => p.left[AB].right[constant].right[function]
-        case b: body => b.right[applied].right[param].right[constant].right[function]
-        case a: applied => a.left[body].right[param].right[constant].right[function]
-       }, (x: ExpCop) => x match {
-        case -\/(f) => f
-        case \/-(-\/(c)) => c
-        case \/-(\/-(-\/(p))) => p
-        case \/-(\/-(\/-(-\/(a)))) => a
-        case \/-(\/-(\/-(\/-(b)))) => b
-      })
+    type ExpCop = Cop[function :: constant :: param :: body :: TNil]
+    implicit val gen = Cop.gen[Exp, ExpCop#L]
 
-
-    implicit val show: Show[Exp] = Decidable[Show].choose5(
-      Show[function], Show[constant], Show[param], Show[applied], Show[body])(gen.to(_))
+    implicit val show: Show[Exp] = Decidable[Show].choose4(
+      Show[function], Show[constant], Show[param], Show[body])(x => Cops.to4(gen.to(x)))
   }
 
-  case class function(params: Set[param], body: body) extends Exp
+  case class function(params: List[param], body: body) extends Exp
   object function {
-    implicit val gen: (function <=> (Set[param], body)) =
+    implicit val gen: (function <=> (List[param], body)) =
       iso.IsoSet((x: function) => (x.params, x.body), (function.apply _).tupled)
 
     implicit val show: Show[function] = Show.fromIso(gen)
@@ -88,12 +105,6 @@ object calc extends App {
     implicit val show: Show[param] = Show.shows((p: param) => p.value.toString)
   }
 
-  case class applied(params: List[param]) extends Exp
-  object applied {
-    implicit val gen: (applied <=> List[param]) = iso.IsoSet(_.params, applied(_))
-    implicit val show: Show[applied] = Show.fromIso(gen)
-  }
-
   case class body(exp: List[Exp]) extends Exp
   object body {
     implicit val gen: (body <=> List[Exp]) = iso.IsoSet(_.exp, body(_))
@@ -102,9 +113,22 @@ object calc extends App {
 
   val example =
     body(List(
-      function(Set(param('x)), body(List(constant('x), constant('x)))),
-      function(Set(param('y)), body(List(constant('y), constant('x)))),
+      function(List(param('x)), body(List(constant('x), constant('x)))),
+      function(List(param('y)), body(List(constant('y), constant('x)))),
       constant('z)))
+
+  def applyFn(fn: function, c: constant) = {
+    // was param passed? val upd = fn.
+    // if so, return functon or body redefined
+    // with matched param substituted by c
+    ()
+  }
+
+  /*def reduce(exp: Exp) = exp match {
+    case function(params, body) =>
+    case body(exps) =>
+    case param(s) =>
+    case constant(s) => */
 
   println(example.show)
 }

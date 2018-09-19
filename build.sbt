@@ -4,7 +4,8 @@ lazy val root = (project in file(".")).
     organization := "bz",
     scalaVersion := "2.12.5",
     libraryDependencies ++= Seq(
-      "org.scalaz" %% "scalaz-core" % "7.3.0-M24"),
+      "org.scalaz" %% "scalaz-core" % "7.3.0-M24",
+      "io.frees" %% "iotaz-core" % "0.3.10" ),
     scalacOptions ++= Seq(
       "-deprecation",
       "-encoding", "UTF-8", // yes, this is 2 args
